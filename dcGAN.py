@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.optim as optim
 import torchvision
 import torchvision.datasets as datasets
 from torch.utils.data import DataLoader
@@ -15,7 +14,7 @@ from torch.utils.tensorboard import SummaryWriter
 class Generator (nn.Module):
 
 	def __init__(self, numZ = 100, numGenFeat = 64, colorChannels = 1):
-		super(Generator, self).init()
+		super(Generator, self).__init__()
 
 		#The number of out channels is different from the original paper, because:
 		#1) The dataset we use is not in an RGB format, instad it only contains grayscale Images
@@ -49,8 +48,8 @@ class Generator (nn.Module):
 			nn.Tanh()
 		)
 
-		def forward(self, input):
-			return self.gen(input)
+	def forward(self, input):
+		return self.gen(input)
 
 class Discriminator(nn.Module):
 
@@ -58,7 +57,8 @@ class Discriminator(nn.Module):
 		super(Discriminator, self).__init__()
 		if not wasserstein:
 			self.disc = nn.Sequential(
-				nn.ConvTranspose2d(in_channels = numDiscFeat, out_channels = colorChannels, kernel_size = 4, stride = 2, padding = 1, bias = False),
+				#nn.ConvTranspose2d(in_channels=numDiscFeat, out_channels=colorChannels, kernel_size=4, stride=2, padding=1, bias=False),
+				nn.ConvTranspose2d(in_channels=colorChannels, out_channels=numDiscFeat, kernel_size=4, stride=2, padding=1, bias=False),
 				nn.LeakyReLU(0.2, inplace=True),
 				#
 				#
@@ -67,7 +67,7 @@ class Discriminator(nn.Module):
 				nn.LeakyReLU(0.2, inplace=True),
 				# state size. (ndf*2) x 16 x 16
 				nn.Conv2d(in_channels = numDiscFeat * 2, out_channels = numDiscFeat * 4, kernel_size = 4, stride = 2, padding = 1, bias=False),
-				nn.BatchNorm2d(ndf * 4),
+				nn.BatchNorm2d(numDiscFeat * 4),
 				nn.LeakyReLU(0.2, inplace=True),
 				# state size. (ndf*4) x 8 x 8
 				nn.Conv2d(in_channels = numDiscFeat * 4, out_channels = numDiscFeat * 8, kernel_size = 4, stride = 2, padding = 1, bias=False),
@@ -79,36 +79,36 @@ class Discriminator(nn.Module):
 			)
 		else:
 			self.disc = nn.Sequential(
-				nn.ConvTranspose2d(in_channels=numDiscFeat, out_channels=colorChannels, kernel_size=4, stride=2,
-								   padding=1, bias=False),
+				# nn.ConvTranspose2d(in_channels=numDiscFeat, out_channels=colorChannels, kernel_size=4, stride=2, padding=1, bias=False),
+				nn.ConvTranspose2d(in_channels=colorChannels, out_channels=numDiscFeat, kernel_size=4, stride=2, padding=1, bias=False),
 				nn.LeakyReLU(0.2, inplace=True),
 				#
 				#
-				nn.Conv2d(in_channels=numDiscFeat, out_channels=numDiscFeat * 2, kernel_size=4, stride=2, padding=1,
-						  bias=False),
+				nn.Conv2d(in_channels=numDiscFeat, out_channels=numDiscFeat * 2, kernel_size=4, stride=2, padding=1, bias=False),
 				nn.BatchNorm2d(numDiscFeat * 2),
 				nn.LeakyReLU(0.2, inplace=True),
 				# state size. (ndf*2) x 16 x 16
-				nn.Conv2d(in_channels=numDiscFeat * 2, out_channels=numDiscFeat * 4, kernel_size=4, stride=2, padding=1,
-						  bias=False),
-				nn.BatchNorm2d(ndf * 4),
+				nn.Conv2d(in_channels=numDiscFeat * 2, out_channels=numDiscFeat * 4, kernel_size=4, stride=2, padding=1, bias=False),
+				nn.BatchNorm2d(numDiscFeat * 4),
 				nn.LeakyReLU(0.2, inplace=True),
 				# state size. (ndf*4) x 8 x 8
-				nn.Conv2d(in_channels=numDiscFeat * 4, out_channels=numDiscFeat * 8, kernel_size=4, stride=2, padding=1,
-						  bias=False),
+				nn.Conv2d(in_channels=numDiscFeat * 4, out_channels=numDiscFeat * 8, kernel_size=4, stride=2, padding=1, bias=False),
 				nn.BatchNorm2d(numDiscFeat * 8),
 				nn.LeakyReLU(0.2, inplace=True),
 				# state size. (ndf*8) x 4 x 4
 				nn.Conv2d(in_channels=numDiscFeat * 8, out_channels=1, kernel_size=4, stride=1, padding=0, bias=False),
-				nn.Sigmoid()
+				#nn.Sigmoid()
 			)
 
 	def forward(self, input):
-		return self.dis(input)
+		return self.disc(input)
 
-def init_weights(n):
+def weightInit(model):
     #Initialize the weights, as done in the DCGan Paper
     #Quote from the paper:
     #"All weights were initialized from a zero-centered Normal distribution with standard deviation 0.02"
-    center  = 0
-    stDev   = 0.02
+	center  = 0
+	stDev   = 0.02
+	for mod in model.modules():
+		if (isinstance(mod, nn.ConvTranspose2d, nn.Conv2d, nn.BatchNorm2d)):
+			nn.init.normal(mod.weight.data, center, stDev)

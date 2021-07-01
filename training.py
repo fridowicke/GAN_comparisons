@@ -1,4 +1,5 @@
 import torch
+import torch.optim as optim
 import torchvision
 import torchvision.datasets as datasets
 from torch.utils.data import DataLoader
@@ -22,24 +23,158 @@ numDiscFeat     = 64
 numEpochs       = 5
 learningRate    = 0.0002
 numWorkers      = 2
+k               = 5
 
 
 #Load the Fashion - Mnist Data from Torchvision
 #Normalize it and turn it into a Tensor
 
-transforms = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,)),])
-data = datasets.FashionMNIST(root="dataset/", transform=transforms, download=True)
-loader = DataLoader(data, batch_size=batchSize, shuffle=True)
+transformation = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.5,), (0.5,)),])
+data = datasets.FashionMNIST(root="dataset/", transform = transformation, download=True)
+loader = DataLoader(data, batch_size=batchSize, shuffle=True) #, num_workers = numWorkers)
 
 
 #Set the device
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-gen     = gan.Generator(numZ, numGenFeat, colorChannels).to(device)
-disc    = gan.Discriminator(numZ, numDiscFeat, colorChannels, wasserstein = False)
 
+def trainWasserstein(k = 5):
 
+    gen         = gan.Generator(numZ, numGenFeat, colorChannels).to(device)
+    disc        = gan.Discriminator(numZ, numDiscFeat, colorChannels, wasserstein = True)
 
+    optGen     = optim.RMSprop(gen.parameters(), lr = learningRate)
+    optDisc    = optim.RMSprop(disc.parameters(), lr = learningRate)
+
+    orgImg     = SummaryWriter(f"logs/originalImages")
+    genImg     = SummaryWriter(f"logs/generatedImages")
+    loss        = SummaryWriter(f"logs/loss")
+    step = 0
+
+    for epoch in range(numEpochs):
+        for count, (org,_) in enumerate(loader):
+
+            org     = org.to(device)
+            batchSize = org.shape[0]
+
+            #Training of the Discriminator
+            #If Wasserstein == False, then k=1
+            for _ in range(k):
+                noise = torch.randn(imageSize, numZ, 1, 1, device=device)
+                generated = gen(noise)
+                print(org.shape, "----------------_ORGSHAPE_")
+                discData = disc(org).reshape(-1)
+                discGen  = disc(generated).reshape(-1)
+                discLoss = -(torch.mean(discData) - torch.mean(discGen))
+                disc.zero_grad()
+                discLoss.backward(retain_graph=True)
+                optDisc.step()
+
+                for p in disc.parameters():
+                    #p.data.clamp_(-0.01, 0.01)
+                    p.data.clamp(-0.01, 0.01)
+
+            genFake = disc(generated).reshape(-1)
+            genLoss = -torch.mean(genFake)
+            gen.zero_grad()
+            genLoss.backward()
+            optGen.step()
+
+            #Printing to Tensorboard
+            if count % 10 == 0:
+                gen.eval()
+                disc.eval()
+                print(
+                    f"Epoch [{epoch}/{numEpochs}] Batch {count}/{len(loader)} \
+                              Loss D: {discLoss:.4f}, loss G: {genLoss:.4f}"
+                )
+
+                with torch.no_grad():
+                    fake = gen(noise)
+                    # take out (up to) 32 examples
+                    img_grid_real = torchvision.utils.make_grid(
+                        org[:32], normalize=True
+                    )
+                    img_grid_fake = torchvision.utils.make_grid(
+                        generated[:32], normalize=True
+                    )
+
+                    orgImg.add_image("Real", img_grid_real, global_step=step)
+                    genImg.add_image("Fake", img_grid_fake, global_step=step)
+                    loss.add_scalar("Total loss", discLoss + genLoss, count)
+
+                step += 1
+                gen.train()
+                disc.train()
+
+def trainDC(k = 1):
+
+    gen         = gan.Generator(numZ, numGenFeat, colorChannels).to(device)
+    disc        = gan.Discriminator(numZ, numDiscFeat, colorChannels, wasserstein = False)
+
+    optGen     = optim.RMSprop(gen.parameters(), lr = learningRate)
+    optDisc    = optim.RMSprop(disc.parameters(), lr = learningRate)
+
+    orgImg     = SummaryWriter(f"logs/originalImages")
+    genImg     = SummaryWriter(f"logs/generatedImages")
+    loss        = SummaryWriter(f"logs/loss")
+    step = 0
+
+    for epoch in range(numEpochs):
+        for count, (org,_) in enumerate(loader):
+
+            org     = org.to(device)
+            batchSize = org.shape[0]
+
+            #Training of the Discriminator
+            #If Wasserstein == False, then k=1
+            for _ in range(k):
+                noise = torch.randn(imageSize, numZ, 1, 1, device=device)
+                generated = gen(noise)
+                print(org.shape, "----------------_ORGSHAPE_")
+                discData = disc(org).reshape(-1)
+                discGen  = disc(generated).reshape(-1)
+                discLoss = -(torch.mean(discData) - torch.mean(discGen))
+                disc.zero_grad()
+                discLoss.backward(retain_graph=True)
+                optDisc.step()
+
+                for p in disc.parameters():
+                    #p.data.clamp_(-0.01, 0.01)
+                    p.data.clamp(-0.01, 0.01)
+
+            genFake = disc(generated).reshape(-1)
+            genLoss = -torch.mean(genFake)
+            gen.zero_grad()
+            genLoss.backward()
+            optGen.step()
+
+            #Printing to Tensorboard
+            if count % 10 == 0:
+                gen.eval()
+                disc.eval()
+                print(
+                    f"Epoch [{epoch}/{numEpochs}] Batch {count}/{len(loader)} \
+                              Loss D: {discLoss:.4f}, loss G: {genLoss:.4f}"
+                )
+
+                with torch.no_grad():
+                    fake = gen(noise)
+                    # take out (up to) 32 examples
+                    img_grid_real = torchvision.utils.make_grid(
+                        org[:32], normalize=True
+                    )
+                    img_grid_fake = torchvision.utils.make_grid(
+                        generated[:32], normalize=True
+                    )
+
+                    orgImg.add_image("Real", img_grid_real, global_step=step)
+                    genImg.add_image("Fake", img_grid_fake, global_step=step)
+                    loss.add_scalar("Total loss", discLoss + genLoss, count)
+
+                step += 1
+                gen.train()
+                disc.train()
 
 def testPlot():
     #This function plots datastes to test the dataloader
